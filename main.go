@@ -181,7 +181,7 @@ func trySetWindowIcon(hwnd win.HWND, iconPath string) {
 }
 
 func main() {
-	// Determinar ruta de almacenamiento junto al ejecutable
+	// Redirigir logs a debug.log para diagnóstico
 	exePath, err := os.Executable()
 	var baseDir string
 	if err == nil {
@@ -189,6 +189,23 @@ func main() {
 	} else {
 		baseDir = "."
 	}
+	logFile, err := os.OpenFile(filepath.Join(baseDir, "debug.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+	if err == nil {
+		defer logFile.Close()
+		log.SetOutput(logFile)
+	}
+	log.Println("Iniciando Recordador...")
+
+	defer func() {
+		if r := recover(); r != nil {
+			msg := fmt.Sprintf("Error crítico en la aplicación:\n%v", r)
+			user32 := syscall.NewLazyDLL("user32.dll")
+			pMsg, _ := syscall.UTF16PtrFromString(msg)
+			pTitle, _ := syscall.UTF16PtrFromString("Error - Recordador")
+			user32.NewProc("MessageBoxW").Call(0, uintptr(unsafe.Pointer(pMsg)), uintptr(unsafe.Pointer(pTitle)), 0x10)
+		}
+	}()
+
 	dbPath := filepath.Join(baseDir, "recordatorios.json")
 	iconPath := filepath.Join(baseDir, "icon.ico")
 
@@ -197,7 +214,12 @@ func main() {
 
 	store, err := NewStore(dbPath)
 	if err != nil {
-		log.Fatalf("Error inicializando almacenamiento: %v", err)
+		msg := fmt.Sprintf("Error inicializando almacenamiento:\n%v", err)
+		user32 := syscall.NewLazyDLL("user32.dll")
+		pMsg, _ := syscall.UTF16PtrFromString(msg)
+		pTitle, _ := syscall.UTF16PtrFromString("Error - Recordador")
+		user32.NewProc("MessageBoxW").Call(0, uintptr(unsafe.Pointer(pMsg)), uintptr(unsafe.Pointer(pTitle)), 0x10)
+		return
 	}
 
 	model := &ReminderModel{
@@ -577,7 +599,12 @@ func main() {
 	}.Create()
 
 	if err != nil {
-		log.Fatalf("Error creando la ventana principal: %v", err)
+		msg := fmt.Sprintf("Error al crear la ventana principal:\n%v", err)
+		user32 := syscall.NewLazyDLL("user32.dll")
+		pMsg, _ := syscall.UTF16PtrFromString(msg)
+		pTitle, _ := syscall.UTF16PtrFromString("Error - Recordador")
+		user32.NewProc("MessageBoxW").Call(0, uintptr(unsafe.Pointer(pMsg)), uintptr(unsafe.Pointer(pTitle)), 0x10)
+		return
 	}
 
 	// Aplicar tema inicial
@@ -613,7 +640,9 @@ func main() {
 		}
 	}()
 
-	mw.Run()
+	log.Println("Ejecutando mw.Run()...")
+	code := mw.Run()
+	log.Printf("mw.Run() finalizó con código: %d\n", code)
 }
 
 // showEditDialog abre una ventana modal nativa para modificar un recordatorio existente
