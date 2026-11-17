@@ -6,6 +6,8 @@ settings.json
 test_*.exe
 *.test
 *.out
+*~
+debug.log
 
 # IDEs y editores
 .vscode/

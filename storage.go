@@ -302,17 +302,21 @@ func (s *Store) GetActiveAlarms() []*Reminder {
 
 type AppSettings struct {
 	DarkMode bool `json:"dark_mode"`
+	Volume   int  `json:"volume"`
 }
 
 func LoadSettings(dir string) AppSettings {
 	filePath := filepath.Join(dir, "settings.json")
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return AppSettings{DarkMode: false}
+		return AppSettings{DarkMode: false, Volume: 80}
 	}
 	var s AppSettings
 	if err := json.Unmarshal(data, &s); err != nil {
-		return AppSettings{DarkMode: false}
+		return AppSettings{DarkMode: false, Volume: 80}
+	}
+	if s.Volume <= 0 {
+		s.Volume = 80
 	}
 	return s
 }

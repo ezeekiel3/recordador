@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,18 +29,16 @@ func setWindowDarkMode(hwnd win.HWND, enable bool) {
 	if enable {
 		val = 1
 	}
-	// Atributo 20 para Windows 10 20H1+ y Windows 11
 	r, _, _ := procDwmSetWindowAttribute.Call(
 		uintptr(hwnd),
-		20,
+		20, // DWMWA_USE_IMMERSIVE_DARK_MODE para Windows 10 20H1+ y Windows 11
 		uintptr(unsafe.Pointer(&val)),
 		unsafe.Sizeof(val),
 	)
 	if r != 0 {
-		// Fallback atributo 19 para compilaciones anteriores de Windows 10
 		procDwmSetWindowAttribute.Call(
 			uintptr(hwnd),
-			19,
+			19, // Fallback para Windows 10 1809-1909
 			uintptr(unsafe.Pointer(&val)),
 			unsafe.Sizeof(val),
 		)
@@ -98,15 +95,15 @@ func (m *ReminderModel) Value(row, col int) interface{} {
 	return ""
 }
 
-// StyleCell aplica los colores del tema oscuro o claro en cada fila de la tabla
+// StyleCell aplica los colores adecuados en las filas de la tabla
 func (m *ReminderModel) StyleCell(style *walk.CellStyle) {
 	if m.isDark {
 		if style.Row()%2 == 0 {
-			style.BackgroundColor = walk.RGB(30, 41, 59) // Slate 800
+			style.BackgroundColor = walk.RGB(28, 33, 48) // Azul grisáceo oscuro
 		} else {
-			style.BackgroundColor = walk.RGB(15, 23, 42) // Slate 900
+			style.BackgroundColor = walk.RGB(20, 24, 35) // Azul noche profundo
 		}
-		style.TextColor = walk.RGB(248, 250, 252) // Blanco suave
+		style.TextColor = walk.RGB(245, 247, 250) // Texto blanco suave
 	} else {
 		if style.Row()%2 == 0 {
 			style.BackgroundColor = walk.RGB(255, 255, 255)
@@ -152,12 +149,7 @@ func (m *ReminderModel) GetItem(row int) *Reminder {
 	return nil
 }
 
-var (
-	alarmMu        sync.Mutex
-	activeAlarmDlg *walk.Dialog
-)
-
-// trySetWindowIcon intenta establecer el icono en la barra de título de la ventana sin depender de ComCtl
+// trySetWindowIcon intenta establecer el icono en la barra de título de la ventana
 func trySetWindowIcon(hwnd win.HWND, iconPath string) {
 	user32 := syscall.NewLazyDLL("user32.dll")
 	procLoadImageW := user32.NewProc("LoadImageW")
@@ -175,27 +167,17 @@ func trySetWindowIcon(hwnd win.HWND, iconPath string) {
 		0x00000010|0x00000040, // LR_LOADFROMFILE | LR_DEFAULTSIZE
 	)
 	if hIcon != 0 {
-		procSendMessageW.Call(uintptr(hwnd), 0x0080, 0, hIcon)
-		procSendMessageW.Call(uintptr(hwnd), 0x0080, 1, hIcon)
+		procSendMessageW.Call(uintptr(hwnd), 0x0080, 0, hIcon) // WM_SETICON SMALL
+		procSendMessageW.Call(uintptr(hwnd), 0x0080, 1, hIcon) // WM_SETICON BIG
 	}
 }
 
-func main() {
-	// Redirigir logs a debug.log para diagnóstico
-	exePath, err := os.Executable()
-	var baseDir string
-	if err == nil {
-		baseDir = filepath.Dir(exePath)
-	} else {
-		baseDir = "."
-	}
-	logFile, err := os.OpenFile(filepath.Join(baseDir, "debug.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
-	if err == nil {
-		defer logFile.Close()
-		log.SetOutput(logFile)
-	}
-	log.Println("Iniciando Recordador...")
+var (
+	alarmMu        sync.Mutex
+	activeAlarmDlg *walk.Dialog
+)
 
+func main() {
 	defer func() {
 		if r := recover(); r != nil {
 			msg := fmt.Sprintf("Error crítico en la aplicación:\n%v", r)
@@ -206,11 +188,23 @@ func main() {
 		}
 	}()
 
+	exePath, err := os.Executable()
+	var baseDir string
+	if err == nil {
+		baseDir = filepath.Dir(exePath)
+	} else {
+		baseDir = "."
+	}
 	dbPath := filepath.Join(baseDir, "recordatorios.json")
 	iconPath := filepath.Join(baseDir, "icon.ico")
 
 	settings := LoadSettings(baseDir)
 	isDark := settings.DarkMode
+	currentVol := settings.Volume
+	if currentVol <= 0 {
+		currentVol = 80
+	}
+	SetGlobalVolume(currentVol)
 
 	store, err := NewStore(dbPath)
 	if err != nil {
@@ -235,22 +229,37 @@ func main() {
 	var inText *walk.TextEdit
 	var inDate *walk.DateEdit
 	var inSound *walk.ComboBox
+	var sliderVol *walk.Slider
+	var lblVol *walk.Label
 	var tvReminders *walk.TableView
 	var inSearch *walk.LineEdit
 	var inFilter *walk.ComboBox
 	var lblStats *walk.Label
 	var btnTheme *walk.PushButton
 
-	// Pinceles para temas
-	brushDarkBg, _ := walk.NewSolidColorBrush(walk.RGB(24, 24, 27))    // #18181B
-	brushDarkCard, _ := walk.NewSolidColorBrush(walk.RGB(39, 39, 42))  // #27272A
-	brushLightBg, _ := walk.NewSolidColorBrush(walk.RGB(248, 250, 252)) // #F8FAFC
+	// Etiquetas para actualizar su color en modo oscuro
+	var lblTitle, lblText, lblDate, lblShortcuts, lblSound, lblVolTitle, lblSearch, lblFilterTitle *walk.Label
+
+	// Pinceles de tema
+	brushDarkBg, _ := walk.NewSolidColorBrush(walk.RGB(18, 20, 29))     // Fondo general oscuro
+	brushDarkCard, _ := walk.NewSolidColorBrush(walk.RGB(28, 33, 48))   // Tarjetas oscuras
+	brushDarkInput, _ := walk.NewSolidColorBrush(walk.RGB(38, 44, 64))  // Cajas de texto oscuras
+	brushDarkTable, _ := walk.NewSolidColorBrush(walk.RGB(20, 24, 35))  // Tabla oscura
+
+	brushLightBg, _ := walk.NewSolidColorBrush(walk.RGB(245, 247, 250)) // Fondo claro
 	brushLightCard, _ := walk.NewSolidColorBrush(walk.RGB(255, 255, 255))
+	brushLightInput, _ := walk.NewSolidColorBrush(walk.RGB(255, 255, 255))
+	brushLightTable, _ := walk.NewSolidColorBrush(walk.RGB(255, 255, 255))
 
 	applyTheme := func(dark bool) {
 		isDark = dark
 		model.isDark = dark
 		model.PublishRowsReset()
+
+		allLabels := []*walk.Label{
+			lblTitle, lblText, lblDate, lblShortcuts, lblSound, lblVolTitle, lblVol,
+			lblSearch, lblFilterTitle, lblStats,
+		}
 
 		if mw != nil {
 			setWindowDarkMode(mw.Handle(), dark)
@@ -261,6 +270,26 @@ func main() {
 				}
 				if gbList != nil {
 					gbList.SetBackground(brushDarkCard)
+				}
+				if tvReminders != nil {
+					tvReminders.SetBackground(brushDarkTable)
+				}
+				if inTitle != nil {
+					inTitle.SetBackground(brushDarkInput)
+					inTitle.SetTextColor(walk.RGB(255, 255, 255))
+				}
+				if inText != nil {
+					inText.SetBackground(brushDarkInput)
+					inText.SetTextColor(walk.RGB(255, 255, 255))
+				}
+				if inSearch != nil {
+					inSearch.SetBackground(brushDarkInput)
+					inSearch.SetTextColor(walk.RGB(255, 255, 255))
+				}
+				for _, lbl := range allLabels {
+					if lbl != nil {
+						lbl.SetTextColor(walk.RGB(230, 235, 245))
+					}
 				}
 				if btnTheme != nil {
 					btnTheme.SetText("☀️ Modo Claro")
@@ -273,6 +302,26 @@ func main() {
 				if gbList != nil {
 					gbList.SetBackground(brushLightCard)
 				}
+				if tvReminders != nil {
+					tvReminders.SetBackground(brushLightTable)
+				}
+				if inTitle != nil {
+					inTitle.SetBackground(brushLightInput)
+					inTitle.SetTextColor(walk.RGB(15, 23, 42))
+				}
+				if inText != nil {
+					inText.SetBackground(brushLightInput)
+					inText.SetTextColor(walk.RGB(15, 23, 42))
+				}
+				if inSearch != nil {
+					inSearch.SetBackground(brushLightInput)
+					inSearch.SetTextColor(walk.RGB(15, 23, 42))
+				}
+				for _, lbl := range allLabels {
+					if lbl != nil {
+						lbl.SetTextColor(walk.RGB(15, 23, 42))
+					}
+				}
 				if btnTheme != nil {
 					btnTheme.SetText("🌙 Modo Oscuro")
 				}
@@ -280,7 +329,7 @@ func main() {
 			mw.Invalidate()
 		}
 
-		_ = SaveSettings(baseDir, AppSettings{DarkMode: dark})
+		_ = SaveSettings(baseDir, AppSettings{DarkMode: dark, Volume: GetGlobalVolume()})
 	}
 
 	updateStats := func() {
@@ -314,8 +363,8 @@ func main() {
 	err = MainWindow{
 		AssignTo: &mw,
 		Title:    "⏰ Recordador & Notas - Golang",
-		MinSize:  Size{Width: 840, Height: 640},
-		Size:     Size{Width: 890, Height: 690},
+		MinSize:  Size{Width: 860, Height: 660},
+		Size:     Size{Width: 920, Height: 710},
 		Layout:   VBox{Margins: Margins{Left: 12, Top: 12, Right: 12, Bottom: 12}, Spacing: 10},
 		Children: []Widget{
 			// SECCIÓN SUPERIOR: FORMULARIO PARA AGREGAR
@@ -327,7 +376,7 @@ func main() {
 					Composite{
 						Layout: HBox{MarginsZero: true, Spacing: 8},
 						Children: []Widget{
-							Label{Text: "Título / Asunto:", MinSize: Size{Width: 100, Height: 0}},
+							Label{AssignTo: &lblTitle, Text: "Título / Asunto:", MinSize: Size{Width: 100, Height: 0}},
 							LineEdit{
 								AssignTo: &inTitle,
 							},
@@ -343,7 +392,7 @@ func main() {
 					Composite{
 						Layout: HBox{MarginsZero: true, Spacing: 8},
 						Children: []Widget{
-							Label{Text: "Detalle / Notas:", MinSize: Size{Width: 100, Height: 0}},
+							Label{AssignTo: &lblText, Text: "Detalle / Notas:", MinSize: Size{Width: 100, Height: 0}},
 							TextEdit{
 								AssignTo: &inText,
 								MinSize:  Size{Width: 0, Height: 55},
@@ -354,13 +403,13 @@ func main() {
 					Composite{
 						Layout: HBox{MarginsZero: true, Spacing: 8},
 						Children: []Widget{
-							Label{Text: "Fecha y Alarma:", MinSize: Size{Width: 100, Height: 0}},
+							Label{AssignTo: &lblDate, Text: "Fecha y Alarma:", MinSize: Size{Width: 100, Height: 0}},
 							DateEdit{
 								AssignTo: &inDate,
 								Format:   "dd/MM/yyyy HH:mm",
 								Date:     defaultTime,
 							},
-							Label{Text: "Atajos rápidos:"},
+							Label{AssignTo: &lblShortcuts, Text: "Atajos:"},
 							PushButton{
 								Text: "+5 min",
 								OnClicked: func() {
@@ -396,11 +445,11 @@ func main() {
 							HSpacer{},
 						},
 					},
-					// Fila de Selección de Sonido y Botón Guardar
+					// Fila de Selección de Sonido, Barra de Volumen y Botón Guardar
 					Composite{
 						Layout: HBox{MarginsZero: true, Spacing: 8},
 						Children: []Widget{
-							Label{Text: "Sonido Alarma:", MinSize: Size{Width: 100, Height: 0}},
+							Label{AssignTo: &lblSound, Text: "Sonido Alarma:", MinSize: Size{Width: 100, Height: 0}},
 							ComboBox{
 								AssignTo:     &inSound,
 								Model:        soundDisplayNames,
@@ -414,6 +463,28 @@ func main() {
 										PlaySystemSound(soundKeys[idx])
 									}
 								},
+							},
+							Label{AssignTo: &lblVolTitle, Text: "Volumen:"},
+							Slider{
+								AssignTo: &sliderVol,
+								MinValue: 0,
+								MaxValue: 100,
+								Value:    currentVol,
+								Tracking: true,
+								MinSize:  Size{Width: 100, Height: 0},
+								OnValueChanged: func() {
+									val := sliderVol.Value()
+									SetGlobalVolume(val)
+									if lblVol != nil {
+										lblVol.SetText(fmt.Sprintf("%d%%", val))
+									}
+									_ = SaveSettings(baseDir, AppSettings{DarkMode: isDark, Volume: val})
+								},
+							},
+							Label{
+								AssignTo: &lblVol,
+								Text:     fmt.Sprintf("%d%%", currentVol),
+								MinSize:  Size{Width: 38, Height: 0},
 							},
 							HSpacer{},
 							PushButton{
@@ -468,7 +539,7 @@ func main() {
 					Composite{
 						Layout: HBox{MarginsZero: true, Spacing: 8},
 						Children: []Widget{
-							Label{Text: "🔍 Buscar:"},
+							Label{AssignTo: &lblSearch, Text: "🔍 Buscar:"},
 							LineEdit{
 								AssignTo: &inSearch,
 								OnTextChanged: func() {
@@ -476,7 +547,7 @@ func main() {
 									model.ApplyFilter(store.GetAll())
 								},
 							},
-							Label{Text: "Filtrar por:"},
+							Label{AssignTo: &lblFilterTitle, Text: "Filtrar por:"},
 							ComboBox{
 								AssignTo:     &inFilter,
 								Model:        filterOptions,
@@ -607,7 +678,7 @@ func main() {
 		return
 	}
 
-	// Aplicar tema inicial
+	// Aplicar tema inicial y establecer icono
 	applyTheme(isDark)
 	trySetWindowIcon(mw.Handle(), iconPath)
 	updateStats()
@@ -640,9 +711,7 @@ func main() {
 		}
 	}()
 
-	log.Println("Ejecutando mw.Run()...")
-	code := mw.Run()
-	log.Printf("mw.Run() finalizó con código: %d\n", code)
+	mw.Run()
 }
 
 // showEditDialog abre una ventana modal nativa para modificar un recordatorio existente
@@ -652,6 +721,10 @@ func showEditDialog(owner walk.Form, store *Store, onUpdated func(), item *Remin
 	var editText *walk.TextEdit
 	var editDate *walk.DateEdit
 	var editSound *walk.ComboBox
+	var lblETitle, lblEText, lblEDate, lblESound *walk.Label
+
+	brushDarkCard, _ := walk.NewSolidColorBrush(walk.RGB(28, 33, 48))
+	brushDarkInput, _ := walk.NewSolidColorBrush(walk.RGB(38, 44, 64))
 
 	selectedSoundIdx := 0
 	for i, k := range soundKeys {
@@ -668,24 +741,24 @@ func showEditDialog(owner walk.Form, store *Store, onUpdated func(), item *Remin
 		Size:     Size{Width: 500, Height: 360},
 		Layout:   VBox{Margins: Margins{Left: 12, Top: 12, Right: 12, Bottom: 12}, Spacing: 8},
 		Children: []Widget{
-			Label{Text: "Título / Asunto:"},
+			Label{AssignTo: &lblETitle, Text: "Título / Asunto:"},
 			LineEdit{
 				AssignTo: &editTitle,
 				Text:     item.Title,
 			},
-			Label{Text: "Detalle / Notas adicionales:"},
+			Label{AssignTo: &lblEText, Text: "Detalle / Notas adicionales:"},
 			TextEdit{
 				AssignTo: &editText,
 				Text:     item.Text,
 				MinSize:  Size{Width: 0, Height: 60},
 			},
-			Label{Text: "Fecha y Hora de la Alarma:"},
+			Label{AssignTo: &lblEDate, Text: "Fecha y Hora de la Alarma:"},
 			DateEdit{
 				AssignTo: &editDate,
 				Format:   "dd/MM/yyyy HH:mm",
 				Date:     item.DueTime,
 			},
-			Label{Text: "Sonido de la Alarma:"},
+			Label{AssignTo: &lblESound, Text: "Sonido de la Alarma:"},
 			Composite{
 				Layout: HBox{MarginsZero: true, Spacing: 8},
 				Children: []Widget{
@@ -749,7 +822,19 @@ func showEditDialog(owner walk.Form, store *Store, onUpdated func(), item *Remin
 	}.Create(owner)
 
 	if err == nil {
-		setWindowDarkMode(dlg.Handle(), isDark)
+		if isDark {
+			setWindowDarkMode(dlg.Handle(), true)
+			dlg.SetBackground(brushDarkCard)
+			editTitle.SetBackground(brushDarkInput)
+			editTitle.SetTextColor(walk.RGB(255, 255, 255))
+			editText.SetBackground(brushDarkInput)
+			editText.SetTextColor(walk.RGB(255, 255, 255))
+			for _, l := range []*walk.Label{lblETitle, lblEText, lblEDate, lblESound} {
+				if l != nil {
+					l.SetTextColor(walk.RGB(230, 235, 245))
+				}
+			}
+		}
 		dlg.Run()
 	}
 }
@@ -781,6 +866,11 @@ func showAlarmDialog(owner *walk.MainWindow, store *Store, onUpdated func(), ite
 	}()
 
 	var dlg *walk.Dialog
+	var lblHeader, lblSubject, lblTime *walk.Label
+	var teNotes *walk.TextEdit
+
+	brushDarkCard, _ := walk.NewSolidColorBrush(walk.RGB(28, 33, 48))
+	brushDarkInput, _ := walk.NewSolidColorBrush(walk.RGB(38, 44, 64))
 
 	err := Dialog{
 		AssignTo: &dlg,
@@ -790,17 +880,21 @@ func showAlarmDialog(owner *walk.MainWindow, store *Store, onUpdated func(), ite
 		Layout:   VBox{Margins: Margins{Left: 14, Top: 14, Right: 14, Bottom: 14}, Spacing: 10},
 		Children: []Widget{
 			Label{
-				Text: "⏰ ¡HORA DE TU RECORDATORIO!",
-				Font: Font{PointSize: 12, Bold: true},
+				AssignTo: &lblHeader,
+				Text:     "⏰ ¡HORA DE TU RECORDATORIO!",
+				Font:     Font{PointSize: 12, Bold: true},
 			},
 			Label{
-				Text: fmt.Sprintf("Asunto: %s", item.Title),
-				Font: Font{PointSize: 11, Bold: true},
+				AssignTo: &lblSubject,
+				Text:     fmt.Sprintf("Asunto: %s", item.Title),
+				Font:     Font{PointSize: 11, Bold: true},
 			},
 			Label{
-				Text: fmt.Sprintf("Programado para: %s", item.DueTime.Format("02/01/2006 15:04")),
+				AssignTo: &lblTime,
+				Text:     fmt.Sprintf("Programado para: %s", item.DueTime.Format("02/01/2006 15:04")),
 			},
 			TextEdit{
+				AssignTo: &teNotes,
 				Text:     item.Text,
 				ReadOnly: true,
 				MinSize:  Size{Width: 0, Height: 65},
@@ -850,7 +944,17 @@ func showAlarmDialog(owner *walk.MainWindow, store *Store, onUpdated func(), ite
 		return
 	}
 
-	setWindowDarkMode(dlg.Handle(), isDark)
+	if isDark {
+		setWindowDarkMode(dlg.Handle(), true)
+		dlg.SetBackground(brushDarkCard)
+		teNotes.SetBackground(brushDarkInput)
+		teNotes.SetTextColor(walk.RGB(255, 255, 255))
+		for _, l := range []*walk.Label{lblHeader, lblSubject, lblTime} {
+			if l != nil {
+				l.SetTextColor(walk.RGB(230, 235, 245))
+			}
+		}
+	}
 
 	alarmMu.Lock()
 	activeAlarmDlg = dlg
