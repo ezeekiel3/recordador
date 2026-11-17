@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recordador & Notas - Golang</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-area">
+        <div class="logo-icon">⏰</div>
+        <div>
+          <h1>Recordador & Notas</h1>
+          <p class="subtitle">Anota tus tareas y recibe recordatorios con sonido</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="btn-test-sound-header" class="btn btn-outline" title="Probar sonido del sistema">
+          <span class="icon">🔊</span> Probar Sonido
+        </button>
+        <button id="btn-exit-app" class="btn btn-outline" title="Cerrar la aplicación por completo">
+          <span class="icon">🚪</span> Salir
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Grid -->
+    <main class="main-layout">
+      <!-- Left Column: Add / Create Note Form -->
+      <section class="card form-card">
+        <div class="card-header">
+          <h2><span>➕</span> Nuevo Recordatorio / Nota</h2>
+        </div>
+        <form id="reminder-form">
+          <div class="form-group">
+            <label for="input-title">Título o Asunto <span class="required">*</span></label>
+            <input type="text" id="input-title" placeholder="Ej: Tomar pastilla, Reunión con cliente..." required autocomplete="off">
+          </div>
+
+          <div class="form-group">
+            <label for="input-text">Detalle o Notas adicionales</label>
+            <textarea id="input-text" rows="3" placeholder="Escribe aquí cualquier apunte, enlace, número o detalle..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="input-datetime">Fecha y Hora de la Alarma <span class="required">*</span></label>
+            <input type="datetime-local" id="input-datetime" required>
+            
+            <!-- Quick preset buttons -->
+            <div class="quick-presets">
+              <span class="preset-label">Atajos rápidos:</span>
+              <button type="button" class="btn-preset" data-min="5">+5 min</button>
+              <button type="button" class="btn-preset" data-min="15">+15 min</button>
+              <button type="button" class="btn-preset" data-min="30">+30 min</button>
+              <button type="button" class="btn-preset" data-min="60">+1 hora</button>
+              <button type="button" class="btn-preset-special" id="btn-preset-today-evening">Hoy 18:00</button>
+              <button type="button" class="btn-preset-special" id="btn-preset-tomorrow-morning">Mañana 09:00</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="select-sound">Sonido de la Alarma</label>
+            <div class="sound-select-row">
+              <select id="select-sound">
+                <option value="campana">🔔 Campana Clásica</option>
+                <option value="digital">⏱️ Despertador Digital</option>
+                <option value="melodia">🎵 Melodía Armónica</option>
+                <option value="ding">✨ Ding Rápido</option>
+              </select>
+              <button type="button" id="btn-preview-sound" class="btn btn-secondary btn-icon" title="Escuchar este sonido">
+                ▶️ Escuchar
+              </button>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="btn-submit">
+              <span>💾</span> Guardar Recordatorio
+            </button>
+            <button type="button" class="btn btn-secondary" id="btn-clear-form">
+              Limpiar
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Right Column: Reminders List -->
+      <section class="card list-card">
+        <div class="list-controls">
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="search-input" placeholder="Buscar por título o contenido...">
+          </div>
+          <div class="filter-tabs">
+            <button class="filter-btn active" data-filter="all">Todos (<span id="count-all">0</span>)</button>
+            <button class="filter-btn" data-filter="pending">Pendientes (<span id="count-pending">0</span>)</button>
+            <button class="filter-btn" data-filter="completed">Completados (<span id="count-completed">0</span>)</button>
+          </div>
+        </div>
+
+        <div id="reminders-list" class="reminders-list">
+          <!-- Dynamically populated -->
+          <div class="empty-state">
+            <div class="empty-icon">📝</div>
+            <h3>No hay recordatorios aquí</h3>
+            <p>Escribe tu primera nota o recordatorio en el formulario de la izquierda.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal: Editar Recordatorio -->
+  <div id="modal-edit" class="modal-backdrop hidden">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>✏️ Editar Recordatorio</h3>
+        <button type="button" class="modal-close" id="btn-close-edit">&times;</button>
+      </div>
+      <form id="form-edit">
+        <input type="hidden" id="edit-id">
+        <div class="form-group">
+          <label for="edit-title">Título <span class="required">*</span></label>
+          <input type="text" id="edit-title" required autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="edit-text">Detalle / Notas</label>
+          <textarea id="edit-text" rows="3"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="edit-datetime">Fecha y Hora de la Alarma</label>
+          <input type="datetime-local" id="edit-datetime" required>
+        </div>
+        <div class="form-group">
+          <label for="edit-sound">Sonido de la Alarma</label>
+          <div class="sound-select-row">
+            <select id="edit-sound">
+              <option value="campana">🔔 Campana Clásica</option>
+              <option value="digital">⏱️ Despertador Digital</option>
+              <option value="melodia">🎵 Melodía Armónica</option>
+              <option value="ding">✨ Ding Rápido</option>
+            </select>
+            <button type="button" id="btn-preview-edit-sound" class="btn btn-secondary btn-icon" title="Escuchar">
+              ▶️ Escuchar
+            </button>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-edit">Cancelar</button>
+          <button type="submit" class="btn btn-primary">💾 Guardar Cambios</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Alarma Activa / Notificación Sonora -->
+  <div id="modal-alarm" class="modal-backdrop hidden alarm-backdrop">
+    <div class="modal-dialog alarm-dialog">
+      <div class="alarm-animation-ring">🔔</div>
+      <h2 class="alarm-heading">¡RECORDATORIO!</h2>
+      <h3 id="alarm-title" class="alarm-item-title">Título del recordatorio</h3>
+      <p id="alarm-text" class="alarm-item-text">Detalle del recordatorio...</p>
+      <div class="alarm-meta">
+        Programado para: <span id="alarm-time">--:--</span>
+      </div>
+      <div class="alarm-actions">
+        <button id="btn-alarm-dismiss" class="btn btn-primary btn-large">
+          <span>✅</span> Entendido / Silenciar
+        </button>
+        <button id="btn-alarm-snooze" class="btn btn-warning btn-large">
+          <span>⏰</span> Posponer 5 Minutos
+        </button>
+        <button id="btn-alarm-complete" class="btn btn-success btn-large">
+          <span>✔️</span> Completar Tarea
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# Archivos de datos del usuario (privados)
+recordatorios.json
+settings.json
+
+# Binarios temporales de test
+test_*.exe
+*.test
+*.out
+
+# IDEs y editores
+.vscode/
+.idea/
