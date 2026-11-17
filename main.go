@@ -157,6 +157,29 @@ var (
 	activeAlarmDlg *walk.Dialog
 )
 
+// trySetWindowIcon intenta establecer el icono en la barra de título de la ventana sin depender de ComCtl
+func trySetWindowIcon(hwnd win.HWND, iconPath string) {
+	user32 := syscall.NewLazyDLL("user32.dll")
+	procLoadImageW := user32.NewProc("LoadImageW")
+	procSendMessageW := user32.NewProc("SendMessageW")
+
+	ptr, err := syscall.UTF16PtrFromString(iconPath)
+	if err != nil {
+		return
+	}
+	hIcon, _, _ := procLoadImageW.Call(
+		0,
+		uintptr(unsafe.Pointer(ptr)),
+		1, // IMAGE_ICON
+		0, 0,
+		0x00000010|0x00000040, // LR_LOADFROMFILE | LR_DEFAULTSIZE
+	)
+	if hIcon != 0 {
+		procSendMessageW.Call(uintptr(hwnd), 0x0080, 0, hIcon)
+		procSendMessageW.Call(uintptr(hwnd), 0x0080, 1, hIcon)
+	}
+}
+
 func main() {
 	// Determinar ruta de almacenamiento junto al ejecutable
 	exePath, err := os.Executable()
@@ -269,7 +292,6 @@ func main() {
 	err = MainWindow{
 		AssignTo: &mw,
 		Title:    "⏰ Recordador & Notas - Golang",
-		Icon:     iconPath,
 		MinSize:  Size{Width: 840, Height: 640},
 		Size:     Size{Width: 890, Height: 690},
 		Layout:   VBox{Margins: Margins{Left: 12, Top: 12, Right: 12, Bottom: 12}, Spacing: 10},
@@ -472,7 +494,7 @@ func main() {
 						OnItemActivated: func() {
 							idx := tvReminders.CurrentIndex()
 							if item := model.GetItem(idx); item != nil {
-								showEditDialog(mw, store, refreshAll, item, isDark, iconPath)
+								showEditDialog(mw, store, refreshAll, item, isDark)
 							}
 						},
 					},
@@ -503,7 +525,7 @@ func main() {
 										walk.MsgBox(mw, "Selección", "Por favor selecciona un recordatorio de la lista.", walk.MsgBoxIconInformation)
 										return
 									}
-									showEditDialog(mw, store, refreshAll, item, isDark, iconPath)
+									showEditDialog(mw, store, refreshAll, item, isDark)
 								},
 							},
 							PushButton{
@@ -560,6 +582,7 @@ func main() {
 
 	// Aplicar tema inicial
 	applyTheme(isDark)
+	trySetWindowIcon(mw.Handle(), iconPath)
 	updateStats()
 
 	// Chequeador de alarmas en segundo plano cada 1 segundo
@@ -573,7 +596,7 @@ func main() {
 				itemCopy := *item
 				mw.Synchronize(func() {
 					refreshAll()
-					showAlarmDialog(mw, store, refreshAll, &itemCopy, isDark, iconPath)
+					showAlarmDialog(mw, store, refreshAll, &itemCopy, isDark)
 				})
 			}
 		}
@@ -594,7 +617,7 @@ func main() {
 }
 
 // showEditDialog abre una ventana modal nativa para modificar un recordatorio existente
-func showEditDialog(owner walk.Form, store *Store, onUpdated func(), item *Reminder, isDark bool, iconPath string) {
+func showEditDialog(owner walk.Form, store *Store, onUpdated func(), item *Reminder, isDark bool) {
 	var dlg *walk.Dialog
 	var editTitle *walk.LineEdit
 	var editText *walk.TextEdit
@@ -612,7 +635,6 @@ func showEditDialog(owner walk.Form, store *Store, onUpdated func(), item *Remin
 	err := Dialog{
 		AssignTo: &dlg,
 		Title:    "✏️ Editar Recordatorio",
-		Icon:     iconPath,
 		MinSize:  Size{Width: 480, Height: 350},
 		Size:     Size{Width: 500, Height: 360},
 		Layout:   VBox{Margins: Margins{Left: 12, Top: 12, Right: 12, Bottom: 12}, Spacing: 8},
@@ -704,7 +726,7 @@ func showEditDialog(owner walk.Form, store *Store, onUpdated func(), item *Remin
 }
 
 // showAlarmDialog muestra la ventana de alarma con reproducción continua de sonido
-func showAlarmDialog(owner *walk.MainWindow, store *Store, onUpdated func(), item *Reminder, isDark bool, iconPath string) {
+func showAlarmDialog(owner *walk.MainWindow, store *Store, onUpdated func(), item *Reminder, isDark bool) {
 	alarmMu.Lock()
 	if activeAlarmDlg != nil {
 		alarmMu.Unlock()
@@ -734,7 +756,6 @@ func showAlarmDialog(owner *walk.MainWindow, store *Store, onUpdated func(), ite
 	err := Dialog{
 		AssignTo: &dlg,
 		Title:    "🔔 ¡RECORDATORIO ACTIVADO!",
-		Icon:     iconPath,
 		MinSize:  Size{Width: 460, Height: 260},
 		Size:     Size{Width: 480, Height: 280},
 		Layout:   VBox{Margins: Margins{Left: 14, Top: 14, Right: 14, Bottom: 14}, Spacing: 10},
